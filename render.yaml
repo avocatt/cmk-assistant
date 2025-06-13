@@ -17,7 +17,7 @@ services:
     # 2. Runs the ingestion script to create the chroma_db vector store on the persistent disk.
     buildCommand: |
       pip install -r requirements.txt
-      python scripts/ingest.py
+      PYTHONPATH=. python scripts/ingest.py
     # Define the command to start the web server.
     # Render provides the $PORT environment variable.
     startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
