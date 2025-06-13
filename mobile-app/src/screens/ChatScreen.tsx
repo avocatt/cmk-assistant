@@ -1,32 +1,73 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { IconButton } from 'react-native-paper';
+import { View, StyleSheet, Platform, Alert } from 'react-native';
+import { IconButton, Appbar } from 'react-native-paper';
 import { GiftedChat, IMessage, InputToolbar, Send } from 'react-native-gifted-chat';
 import { askAI } from '../services/api';
+import { ChatSession } from '../types';
+import {
+  createNewChatSession,
+  getChatSession,
+  updateChatSession,
+  getActiveSessionId,
+  setActiveSessionId,
+} from '../services/chatSessionsStorage';
+import ChatDrawerLayout from '../components/ChatDrawerLayout';
 
 const ChatScreen = () => {
   const [messages, setMessages] = useState<IMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [currentSession, setCurrentSession] = useState<ChatSession | null>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   useEffect(() => {
-    // Welcome message
-    const welcomeMessage: IMessage = {
-      _id: Date.now().toString(),
-      text: 'Merhaba, ben CMK Asistanı. Size nasıl yardımcı olabilirim?',
-      createdAt: new Date(),
-      user: {
-        _id: 2,
-        name: 'CMK Asistanı',
-        avatar: '🤖',
-      },
-    };
-    setMessages([welcomeMessage]);
+    initializeChat();
   }, []);
+
+  const initializeChat = async () => {
+    // Try to load the active session
+    const activeSessionId = await getActiveSessionId();
+    
+    if (activeSessionId) {
+      const session = await getChatSession(activeSessionId);
+      if (session) {
+        setCurrentSession(session);
+        setMessages(session.messages);
+        return;
+      }
+    }
+    
+    // If no active session or session not found, create a new one
+    await handleNewChat();
+  };
+
+  const handleNewChat = async () => {
+    const newSession = await createNewChatSession();
+    setCurrentSession(newSession);
+    setMessages(newSession.messages);
+    setIsDrawerOpen(false);
+    setRefreshTrigger(prev => prev + 1);
+  };
+
+  const handleSessionSelect = async (sessionId: string) => {
+    const session = await getChatSession(sessionId);
+    if (session) {
+      setCurrentSession(session);
+      setMessages(session.messages);
+      await setActiveSessionId(sessionId);
+    }
+  };
+
+  // Save messages to current session whenever messages change
+  useEffect(() => {
+    if (currentSession && messages.length > 0) {
+      updateChatSession(currentSession.id, messages);
+    }
+  }, [messages, currentSession]);
 
   const onSend = useCallback(async (newMessages: IMessage[] = []) => {
     const userMessage = newMessages[0];
-    if (!userMessage.text.trim() || isLoading) return;
+    if (!userMessage.text.trim() || isLoading || !currentSession) return;
 
     // Add user message
     setMessages(previousMessages => GiftedChat.append(previousMessages, newMessages));
@@ -80,9 +121,11 @@ const ChatScreen = () => {
       setMessages(prev => [...prev.slice(0, -1), errorMessage]);
       setIsLoading(false);
     }
-  }, [isLoading]);
+  }, [isLoading, currentSession]);
 
-
+  const toggleDrawer = () => {
+    setIsDrawerOpen(!isDrawerOpen);
+  };
 
   const renderInputToolbar = (props: any) => (
     <InputToolbar
@@ -100,10 +143,24 @@ const ChatScreen = () => {
     </Send>
   );
 
-
-
-  return (
-    <SafeAreaView style={styles.container}>
+  const renderChat = () => (
+    <View style={styles.chatContainer}>
+      <Appbar.Header>
+        <Appbar.Action 
+          icon="menu" 
+          onPress={toggleDrawer}
+        />
+        <Appbar.Content 
+          title={currentSession?.title || 'CMK Asistanı'} 
+          titleStyle={styles.headerTitle}
+        />
+        <Appbar.Action 
+          icon="plus" 
+          onPress={handleNewChat}
+          iconColor="#007AFF"
+        />
+      </Appbar.Header>
+      
       <GiftedChat
         messages={messages}
         onSend={onSend}
@@ -124,14 +181,31 @@ const ChatScreen = () => {
         dateFormat="DD.MM.YYYY"
         messagesContainerStyle={styles.messagesContainer}
       />
-    </SafeAreaView>
+    </View>
+  );
+
+  return (
+    <ChatDrawerLayout
+      activeSessionId={currentSession?.id || null}
+      onSessionSelect={handleSessionSelect}
+      onNewChat={handleNewChat}
+      isDrawerOpen={isDrawerOpen}
+      onDrawerToggle={toggleDrawer}
+      refreshTrigger={refreshTrigger}
+    >
+      {renderChat()}
+    </ChatDrawerLayout>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  chatContainer: {
     flex: 1,
     backgroundColor: '#F7F7F7',
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
   },
   messagesContainer: {
     backgroundColor: '#F7F7F7',
