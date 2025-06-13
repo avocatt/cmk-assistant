@@ -48,6 +48,10 @@ class RAGService:
         """Returns a streaming generator for the LLM answer."""
         return self.chain.stream({"context": context, "question": question})
 
+    def get_answer(self, question: str, context: str) -> str:
+        """Returns a complete answer as a string."""
+        return self.chain.invoke({"context": context, "question": question})
+
     @staticmethod
     def format_docs(docs: List[LangchainDocument]) -> str:
         """Helper function to format retrieved documents for the prompt."""

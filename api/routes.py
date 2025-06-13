@@ -37,8 +37,8 @@ async def chat_with_rag(
     request: Request
 ):
     """
-    Receives a question, gets an answer from the RAG service, and returns it
-    as a Server-Sent Events (SSE) stream.
+    Receives a question, gets an answer from the RAG service, and returns 
+    a complete response with sources and answer.
     """
     if not chat_request.question:
         raise HTTPException(
@@ -50,9 +50,18 @@ async def chat_with_rag(
             status_code=503, detail="RAG service is not available.")
 
     try:
-        return StreamingResponse(
-            stream_rag_response(rag_service, chat_request.question),
-            media_type="text/event-stream"
+        # Get source documents
+        source_documents = rag_service.get_source_documents(
+            chat_request.question)
+        source_docs_json = [doc.dict() for doc in source_documents]
+
+        # Get the complete answer
+        context = rag_service.format_docs(source_documents)
+        answer = rag_service.get_answer(chat_request.question, context)
+
+        return ChatResponse(
+            answer=answer,
+            sources=source_docs_json
         )
     except Exception as e:
         # For production, you'd want more specific error handling and logging

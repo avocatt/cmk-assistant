@@ -1,88 +1,140 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState, useCallback, useEffect } from 'react';
+import { View, StyleSheet, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Appbar, TextInput, Button, ActivityIndicator, Text } from 'react-native-paper';
+import { Appbar, IconButton } from 'react-native-paper';
+import { GiftedChat, IMessage, InputToolbar, Send, Actions } from 'react-native-gifted-chat';
 import * as Speech from 'expo-speech';
-import { Message } from '../types';
-import MessageBubble from '../components/MessageBubble';
-import { streamAskAI } from '../services/api';
+import { askAI } from '../services/api';
 import { useSpeechToText } from '../hooks/useSpeechToText';
 
 const ChatScreen = () => {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
+  const [messages, setMessages] = useState<IMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const { isRecording, startRecording, stopRecordingAndTranscribe } = useSpeechToText();
-  const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
     // Welcome message
-    const welcomeMessage: Message = {
-      id: Date.now().toString(),
-      role: 'ai',
-      content: 'Merhaba, ben CMK Asistanı. Size nasıl yardımcı olabilirim?',
+    const welcomeMessage: IMessage = {
+      _id: Date.now().toString(),
+      text: 'Merhaba, ben CMK Asistanı. Size nasıl yardımcı olabilirim?',
+      createdAt: new Date(),
+      user: {
+        _id: 2,
+        name: 'CMK Asistanı',
+        avatar: '🤖',
+      },
     };
     setMessages([welcomeMessage]);
-    Speech.speak(welcomeMessage.content, { language: 'tr-TR' });
+    Speech.speak(welcomeMessage.text, { language: 'tr-TR' });
   }, []);
 
-  const handleSend = async (text: string) => {
-    if (!text.trim() || isLoading) return;
+  const onSend = useCallback(async (newMessages: IMessage[] = []) => {
+    const userMessage = newMessages[0];
+    if (!userMessage.text.trim() || isLoading) return;
 
-    const userMessage: Message = { id: Date.now().toString(), role: 'user', content: text };
-    const aiMessagePlaceholder: Message = {
-      id: (Date.now() + 1).toString(),
-      role: 'ai',
-      content: '', // Start with empty content
-      sources: [],
+    // Add user message
+    setMessages(previousMessages => GiftedChat.append(previousMessages, newMessages));
+
+    // Create AI placeholder message
+    const aiMessagePlaceholder: IMessage = {
+      _id: (Date.now() + 1).toString(),
+      text: '',
+      createdAt: new Date(),
+      user: {
+        _id: 2,
+        name: 'CMK Asistanı',
+        avatar: '🤖',
+      },
     };
-    setMessages(prev => [...prev, userMessage, aiMessagePlaceholder]);
-    setInput('');
+
+    setMessages(previousMessages => GiftedChat.append(previousMessages, [aiMessagePlaceholder]));
     setIsLoading(true);
 
-    let fullResponse = '';
+    try {
+      const result = await askAI(userMessage.text);
+      
+      // Update the AI message with the complete response
+      const aiMessage: IMessage = {
+        ...aiMessagePlaceholder,
+        text: result.answer,
+      };
 
-    streamAskAI(
-      text,
-      (sources) => {
-        // Update the AI message placeholder with the sources
-        setMessages(prev => prev.map(msg => 
-          msg.id === aiMessagePlaceholder.id ? { ...msg, sources } : msg
-        ));
-      },
-      (chunk) => {
-        // Append the new chunk to the AI message content
-        fullResponse += chunk;
-        setMessages(prev => prev.map(msg => 
-          msg.id === aiMessagePlaceholder.id ? { ...msg, content: fullResponse } : msg
-        ));
-      },
-      () => {
-        // Streaming complete
-        setIsLoading(false);
-        Speech.speak(fullResponse, { language: 'tr-TR' });
-      },
-      (error) => {
-        console.error(error);
-        const errorMessage: Message = { id: Date.now().toString(), role: 'ai', content: 'Üzgünüm, bir hata oluştu.' };
-        setMessages(prev => [...prev.slice(0, -1), errorMessage]); // Replace placeholder with error
-        setIsLoading(false);
-      }
-    );
-  };
+      setMessages(prev => prev.map(msg => 
+        msg._id === aiMessagePlaceholder._id ? aiMessage : msg
+      ));
+
+      setIsLoading(false);
+      Speech.speak(result.answer, { language: 'tr-TR' });
+
+      // Log sources for debugging
+      console.log('Sources:', result.sources);
+    } catch (error) {
+      console.error(error);
+      const errorMessage: IMessage = {
+        _id: Date.now().toString(),
+        text: 'Üzgünüm, bir hata oluştu.',
+        createdAt: new Date(),
+        user: {
+          _id: 2,
+          name: 'CMK Asistanı',
+          avatar: '🤖',
+        },
+      };
+      setMessages(prev => [...prev.slice(0, -1), errorMessage]);
+      setIsLoading(false);
+    }
+  }, [isLoading]);
 
   const handleVoiceButtonPress = async () => {
     if (isLoading) return;
     if (isRecording) {
       const transcribedText = await stopRecordingAndTranscribe();
       if (transcribedText) {
-        setInput(transcribedText);
-        handleSend(transcribedText);
+        const voiceMessage: IMessage = {
+          _id: Date.now().toString(),
+          text: transcribedText,
+          createdAt: new Date(),
+          user: {
+            _id: 1,
+          },
+        };
+        onSend([voiceMessage]);
       }
     } else {
       await startRecording();
     }
   };
+
+  const renderInputToolbar = (props: any) => (
+    <InputToolbar
+      {...props}
+      containerStyle={styles.inputToolbar}
+      primaryStyle={styles.inputPrimary}
+    />
+  );
+
+  const renderSend = (props: any) => (
+    <Send {...props}>
+      <View style={styles.sendContainer}>
+        <IconButton icon="send" size={24} iconColor="#007AFF" />
+      </View>
+    </Send>
+  );
+
+  const renderActions = (props: any) => (
+    <Actions
+      {...props}
+      containerStyle={styles.actionsContainer}
+      onPressActionButton={handleVoiceButtonPress}
+      icon={() => (
+        <IconButton
+          icon={isRecording ? "stop-circle-outline" : "microphone"}
+          size={24}
+          iconColor={isRecording ? "#FF0000" : "#007AFF"}
+        />
+      )}
+    />
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -90,49 +142,27 @@ const ChatScreen = () => {
         <Appbar.Content title="CMK Asistanı" />
       </Appbar.Header>
 
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={({ item }) => <MessageBubble message={item} />}
-        keyExtractor={(item) => item.id || Math.random().toString()}
-        contentContainerStyle={styles.messageList}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+      <GiftedChat
+        messages={messages}
+        onSend={onSend}
+        user={{
+          _id: 1,
+        }}
+        renderInputToolbar={renderInputToolbar}
+        renderSend={renderSend}
+        renderActions={renderActions}
+        placeholder="Mesajınızı yazın..."
+        isTyping={isLoading}
+        showUserAvatar={false}
+        showAvatarForEveryMessage={true}
+        alwaysShowSend
+        scrollToBottom
+        inverted
+        locale="tr"
+        timeFormat="HH:mm"
+        dateFormat="DD.MM.YYYY"
+        messagesContainerStyle={styles.messagesContainer}
       />
-
-      {isLoading && !isRecording && <ActivityIndicator animating={true} style={styles.loader} />}
-      
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}>
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.textInput}
-            value={input}
-            onChangeText={setInput}
-            placeholder="Mesajınızı yazın..."
-            onSubmitEditing={() => handleSend(input)}
-            disabled={isLoading}
-            mode="outlined"
-            outlineStyle={{ borderRadius: 30 }}
-          />
-          <Button
-            icon={isRecording ? "stop-circle-outline" : "microphone"}
-            onPress={handleVoiceButtonPress}
-            disabled={isLoading && !isRecording}
-            mode="contained"
-            style={[styles.button, isRecording && styles.recordingButton]}
-            labelStyle={styles.buttonLabel}
-          />
-          <Button 
-            icon="send" 
-            onPress={() => handleSend(input)} 
-            disabled={!input.trim() || isLoading}
-            mode="contained"
-            style={styles.button}
-            labelStyle={styles.buttonLabel}
-          />
-        </View>
-      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
@@ -142,37 +172,31 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F7F7F7',
   },
-  messageList: {
-    padding: 10,
+  messagesContainer: {
+    backgroundColor: '#F7F7F7',
   },
-  loader: {
-    padding: 10,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 10,
+  inputToolbar: {
     backgroundColor: 'white',
+    borderTopWidth: 1,
+    borderTopColor: '#E8E8E8',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
-  textInput: {
-    flex: 1,
-    marginRight: 8,
+  inputPrimary: {
+    alignItems: 'center',
   },
-  button: {
+  sendContainer: {
     justifyContent: 'center',
     alignItems: 'center',
-    minWidth: 50,
-    height: 50,
-    borderRadius: 25,
-    marginHorizontal: 4,
+    marginRight: 8,
+    marginBottom: 8,
   },
-  recordingButton: {
-    backgroundColor: 'red'
+  actionsContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+    marginBottom: 8,
   },
-  buttonLabel: {
-    fontSize: 20,
-    lineHeight: 22,
-  }
 });
 
 export default ChatScreen; 

@@ -12,59 +12,19 @@ const apiClient = axios.create({
 });
 
 // This function now takes callbacks to handle the streaming data
-export const streamAskAI = async (
-    question: string,
-    onSources: (sources: Source[]) => void,
-    onChunk: (chunk: string) => void,
-    onComplete: () => void,
-    onError: (error: Error) => void,
-) => {
+export const askAI = async (question: string): Promise<{answer: string, sources: Source[]}> => {
   try {
-    const response = await fetch(`${API_URL}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
-      },
-      body: JSON.stringify({ question }),
+    const response = await apiClient.post('/chat', {
+      question: question
     });
-
-    if (!response.body) {
-      throw new Error("Response body is null");
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let sourcesReceived = false;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      
-      const chunk = decoder.decode(value);
-      // SSE format can send multiple events in one chunk, split by \n\n
-      const events = chunk.split('\n\n').filter(e => e.length > 0);
-
-      for (const event of events) {
-        if (event.startsWith('data:')) {
-          const dataStr = event.substring(5);
-          const data = JSON.parse(dataStr);
-
-          if (data.sources && !sourcesReceived) {
-            onSources(data.sources);
-            sourcesReceived = true;
-          } else if (data.answer_chunk) {
-            onChunk(data.answer_chunk);
-          }
-        }
-      }
-    }
-    onComplete();
+    
+    return {
+      answer: response.data.answer,
+      sources: response.data.sources || []
+    };
   } catch (error: any) {
-    console.error('Error in streaming AI response:', error);
-    onError(error);
+    console.error('Error asking AI:', error.response?.data || error.message);
+    throw new Error('Failed to get AI response');
   }
 };
 
