@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Appbar, IconButton } from 'react-native-paper';
+import { IconButton } from 'react-native-paper';
 import { GiftedChat, IMessage, InputToolbar, Send, Actions } from 'react-native-gifted-chat';
 import * as Speech from 'expo-speech';
 import { askAI } from '../services/api';
@@ -140,10 +140,6 @@ const ChatScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Appbar.Header>
-        <Appbar.Content title="CMK Asistanı" />
-      </Appbar.Header>
-
       <GiftedChat
         messages={messages}
         onSend={onSend}
@@ -179,8 +175,6 @@ const styles = StyleSheet.create({
   },
   inputToolbar: {
     backgroundColor: 'white',
-    borderTopWidth: 1,
-    borderTopColor: '#E8E8E8',
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
