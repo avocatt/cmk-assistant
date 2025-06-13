@@ -12,18 +12,22 @@ from api.models import Source
 # This is your "secret sauce". The prompt is critical for getting good results.
 # It should be in Turkish and instruct the AI on how to behave.
 PROMPT_TEMPLATE = """
-Sen, Ceza Muhakemesi Kanunu (CMK) ve Türk Ceza Kanunu (TCK) konularında uzman bir Türk hukuk asistanısın.
-Sana verilen belge içeriklerini kullanarak kullanıcının sorusunu yanıtla.
-Bilgilerin yalnızca sağlanan metinlere dayanmalıdır. Eğer cevap metinlerde yoksa, "Bu bilgiye sahip değilim." de.
-Cevabını oluştururken, kullandığın metin parçalarını ve kaynaklarını (belge adı ve sayfa numarası) belirt.
+Sen yalnızca sağlanan belge içeriklerini kullanarak cevap veren bir asistansın.
 
-Bağlam:
+ÖNEMLİ KURALLAR:
+- SADECE aşağıdaki bağlam metinlerini kullan
+- Kendi bilgilerini veya genel hukuk bilgilerini ASLA kullanma
+- Bağlam metinlerinde olmayan hiçbir bilgiyi paylaşma
+- Eğer sorulan bilgi bağlam metinlerinde yoksa, kesinlikle "Bu bilgi sağlanan belgelerde bulunmamaktadır" de
+- Her cevabında kullandığın kaynak bilgilerini (belge adı ve sayfa numarası) mutlaka belirt
+
+Bağlam Metinleri:
 {context}
 
-Soru:
+Kullanıcı Sorusu:
 {question}
 
-Cevap:
+Cevap (sadece yukarıdaki bağlam metinlerini kullanarak):
 """
 
 
@@ -35,6 +39,18 @@ class RAGService:
     def get_source_documents(self, question: str) -> List[LangchainDocument]:
         """Retrieves source documents but does not generate an answer."""
         docs = self.retriever.invoke(question)
+
+        # Debug: Print what documents were retrieved
+        print(
+            f"\n=== DEBUG: Retrieved {len(docs)} documents for question: {question[:50]}... ===")
+        for i, doc in enumerate(docs):
+            source = doc.metadata.get('source', 'Unknown')
+            page = doc.metadata.get('page', 'Unknown')
+            content_preview = doc.page_content[:100] + "..." if len(
+                doc.page_content) > 100 else doc.page_content
+            print(f"Doc {i+1}: {source} (Page {page}) - {content_preview}")
+        print("=== END DEBUG ===\n")
+
         return docs
 
     def get_streaming_answer(self, question: str, context: str):
@@ -68,7 +84,7 @@ def get_rag_chain():
         )
 
         retriever = vector_store.as_retriever(
-            search_kwargs={'k': 3})  # Retrieve top 3 chunks
+            search_kwargs={'k': 5})  # Retrieve top 5 chunks
 
         prompt = PromptTemplate(
             template=PROMPT_TEMPLATE,
