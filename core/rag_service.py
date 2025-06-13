@@ -32,17 +32,10 @@ class RAGService:
         self.retriever = retriever
         self.chain = chain
 
-    def get_source_documents(self, question: str) -> List[Source]:
+    def get_source_documents(self, question: str) -> List[LangchainDocument]:
         """Retrieves source documents but does not generate an answer."""
         docs = self.retriever.invoke(question)
-        return [
-            Source(
-                source_document=doc.metadata.get("source", "N/A"),
-                page=doc.metadata.get("page", -1),
-                content=doc.page_content,
-            )
-            for doc in docs
-        ]
+        return docs
 
     def get_streaming_answer(self, question: str, context: str):
         """Returns a streaming generator for the LLM answer."""

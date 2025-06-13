@@ -53,7 +53,16 @@ async def chat_with_rag(
         # Get source documents
         source_documents = rag_service.get_source_documents(
             chat_request.question)
-        source_docs_json = [doc.dict() for doc in source_documents]
+
+        # Convert to Source objects
+        sources = [
+            Source(
+                source_document=doc.metadata.get("source", "N/A"),
+                page=doc.metadata.get("page", -1),
+                content=doc.page_content,
+            )
+            for doc in source_documents
+        ]
 
         # Get the complete answer
         context = rag_service.format_docs(source_documents)
@@ -61,7 +70,7 @@ async def chat_with_rag(
 
         return ChatResponse(
             answer=answer,
-            sources=source_docs_json
+            sources=sources
         )
     except Exception as e:
         # For production, you'd want more specific error handling and logging

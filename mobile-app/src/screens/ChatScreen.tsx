@@ -51,7 +51,9 @@ const ChatScreen = () => {
     setIsLoading(true);
 
     try {
+      console.log('Sending question to AI:', userMessage.text);
       const result = await askAI(userMessage.text);
+      console.log('AI response received:', result);
       
       // Update the AI message with the complete response
       const aiMessage: IMessage = {
@@ -69,7 +71,7 @@ const ChatScreen = () => {
       // Log sources for debugging
       console.log('Sources:', result.sources);
     } catch (error) {
-      console.error(error);
+      console.error('ChatScreen error:', error);
       const errorMessage: IMessage = {
         _id: Date.now().toString(),
         text: 'Üzgünüm, bir hata oluştu.',

@@ -11,20 +11,30 @@ const apiClient = axios.create({
   baseURL: API_URL,
 });
 
-// This function now takes callbacks to handle the streaming data
 export const askAI = async (question: string): Promise<{answer: string, sources: Source[]}> => {
   try {
-    const response = await apiClient.post('/chat', {
+    console.log('🚀 NEW API: Making request to:', `${API_URL}/api/chat`);
+    console.log('🚀 NEW API: Request payload:', { question });
+    
+    const response = await apiClient.post('/api/chat', {
       question: question
     });
+    
+    console.log('🚀 NEW API: Response status:', response.status);
+    console.log('🚀 NEW API: Response data:', response.data);
+    
+    if (!response.data.answer) {
+      throw new Error('No answer received from server');
+    }
     
     return {
       answer: response.data.answer,
       sources: response.data.sources || []
     };
   } catch (error: any) {
-    console.error('Error asking AI:', error.response?.data || error.message);
-    throw new Error('Failed to get AI response');
+    console.error('🚀 NEW API: Error asking AI:', error.response?.data || error.message);
+    console.error('🚀 NEW API: Error details:', error);
+    throw new Error('NEW API: Failed to get AI response');
   }
 };
 
