@@ -1,32 +1,59 @@
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
-from .models import ChatRequest, ChatResponse
+from fastapi.responses import StreamingResponse
+from .models import ChatRequest, ChatResponse, Source
+from core.rag_service import RAGService
 import httpx
 import os
+import json
+from typing import List, AsyncGenerator
 
 router = APIRouter()
 
 
-@router.post("/chat", response_model=ChatResponse)
+async def stream_rag_response(rag_service: RAGService, question: str) -> AsyncGenerator[str, None]:
+    """
+    A generator that yields the RAG response as a stream of JSON objects.
+    The first object is the sources, subsequent objects are answer chunks.
+    """
+    # 1. Get source documents first
+    source_documents = rag_service.get_source_documents(question)
+    source_docs_json = [doc.dict() for doc in source_documents]
+
+    # Yield sources as the first part of the stream
+    yield f"data: {json.dumps({'sources': source_docs_json})}\n\n"
+
+    # 2. Format context and get the streaming answer
+    context = rag_service.format_docs(source_documents)
+    answer_stream = rag_service.get_streaming_answer(question, context)
+
+    # 3. Stream the answer chunks
+    for chunk in answer_stream:
+        yield f"data: {json.dumps({'answer_chunk': chunk})}\n\n"
+
+
+@router.post("/chat")
 async def chat_with_rag(
     chat_request: ChatRequest,
     request: Request
 ):
     """
-    Receives a question, gets an answer from the RAG service, and returns it.
-    The RAG service is initialized at startup and accessed via app state.
+    Receives a question, gets an answer from the RAG service, and returns it
+    as a Server-Sent Events (SSE) stream.
     """
     if not chat_request.question:
         raise HTTPException(
             status_code=400, detail="Question cannot be empty.")
 
-    rag_service = request.app.state.rag_service
+    rag_service: RAGService = request.app.state.rag_service
     if not rag_service:
         raise HTTPException(
             status_code=503, detail="RAG service is not available.")
 
     try:
-        result = rag_service.invoke(chat_request.question)
-        return ChatResponse(answer=result["answer"], sources=result["sources"])
+        return StreamingResponse(
+            stream_rag_response(rag_service, chat_request.question),
+            media_type="text/event-stream"
+        )
     except Exception as e:
         # For production, you'd want more specific error handling and logging
         raise HTTPException(

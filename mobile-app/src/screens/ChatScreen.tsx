@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, TextInput, StyleSheet, FlatList, TouchableOpacity, Text, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { View, StyleSheet, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Appbar, TextInput, Button, ActivityIndicator, Text } from 'react-native-paper';
 import * as Speech from 'expo-speech';
 import { Message } from '../types';
 import MessageBubble from '../components/MessageBubble';
-import { askAI } from '../services/api';
+import { streamAskAI } from '../services/api';
 import { useSpeechToText } from '../hooks/useSpeechToText';
 
 const ChatScreen = () => {
@@ -17,6 +18,7 @@ const ChatScreen = () => {
   useEffect(() => {
     // Welcome message
     const welcomeMessage: Message = {
+      id: Date.now().toString(),
       role: 'ai',
       content: 'Merhaba, ben CMK Asistanı. Size nasıl yardımcı olabilirim?',
     };
@@ -26,33 +28,56 @@ const ChatScreen = () => {
 
   const handleSend = async (text: string) => {
     if (!text.trim() || isLoading) return;
-    
-    const userMessage: Message = { role: 'user', content: text };
-    setMessages(prev => [...prev, userMessage]);
+
+    const userMessage: Message = { id: Date.now().toString(), role: 'user', content: text };
+    const aiMessagePlaceholder: Message = {
+      id: (Date.now() + 1).toString(),
+      role: 'ai',
+      content: '', // Start with empty content
+      sources: [],
+    };
+    setMessages(prev => [...prev, userMessage, aiMessagePlaceholder]);
     setInput('');
     setIsLoading(true);
 
-    try {
-      const aiResponse = await askAI(text);
-      setMessages(prev => [...prev, aiResponse]);
-      Speech.speak(aiResponse.content, { language: 'tr-TR' });
-    } catch (error) {
-      console.error(error);
-      const errorMessage: Message = { role: 'ai', content: 'Üzgünüm, bir hata oluştu.' };
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
+    let fullResponse = '';
+
+    streamAskAI(
+      text,
+      (sources) => {
+        // Update the AI message placeholder with the sources
+        setMessages(prev => prev.map(msg => 
+          msg.id === aiMessagePlaceholder.id ? { ...msg, sources } : msg
+        ));
+      },
+      (chunk) => {
+        // Append the new chunk to the AI message content
+        fullResponse += chunk;
+        setMessages(prev => prev.map(msg => 
+          msg.id === aiMessagePlaceholder.id ? { ...msg, content: fullResponse } : msg
+        ));
+      },
+      () => {
+        // Streaming complete
+        setIsLoading(false);
+        Speech.speak(fullResponse, { language: 'tr-TR' });
+      },
+      (error) => {
+        console.error(error);
+        const errorMessage: Message = { id: Date.now().toString(), role: 'ai', content: 'Üzgünüm, bir hata oluştu.' };
+        setMessages(prev => [...prev.slice(0, -1), errorMessage]); // Replace placeholder with error
+        setIsLoading(false);
+      }
+    );
   };
 
   const handleVoiceButtonPress = async () => {
+    if (isLoading) return;
     if (isRecording) {
-      setIsLoading(true);
       const transcribedText = await stopRecordingAndTranscribe();
-      setIsLoading(false);
       if (transcribedText) {
-        setInput(transcribedText); // Set text to input for review
-        handleSend(transcribedText); // Or send immediately
+        setInput(transcribedText);
+        handleSend(transcribedText);
       }
     } else {
       await startRecording();
@@ -61,19 +86,24 @@ const ChatScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
+      <Appbar.Header>
+        <Appbar.Content title="CMK Asistanı" />
+      </Appbar.Header>
+
       <FlatList
         ref={flatListRef}
         data={messages}
         renderItem={({ item }) => <MessageBubble message={item} />}
-        keyExtractor={(_, index) => index.toString()}
+        keyExtractor={(item) => item.id || Math.random().toString()}
         contentContainerStyle={styles.messageList}
         onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
       />
-       {isLoading && <ActivityIndicator size="large" color="#007AFF" style={styles.loader} />}
 
+      {isLoading && !isRecording && <ActivityIndicator animating={true} style={styles.loader} />}
+      
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}>
         <View style={styles.inputContainer}>
           <TextInput
             style={styles.textInput}
@@ -81,13 +111,26 @@ const ChatScreen = () => {
             onChangeText={setInput}
             placeholder="Mesajınızı yazın..."
             onSubmitEditing={() => handleSend(input)}
+            disabled={isLoading}
+            mode="outlined"
+            outlineStyle={{ borderRadius: 30 }}
           />
-          <TouchableOpacity style={[styles.voiceButton, isRecording && styles.recordingButton]} onPress={handleVoiceButtonPress}>
-            <Text style={styles.voiceButtonText}>{isRecording ? '■' : '🎤'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.sendButton} onPress={() => handleSend(input)}>
-            <Text style={styles.sendButtonText}>➤</Text>
-          </TouchableOpacity>
+          <Button
+            icon={isRecording ? "stop-circle-outline" : "microphone"}
+            onPress={handleVoiceButtonPress}
+            disabled={isLoading && !isRecording}
+            mode="contained"
+            style={[styles.button, isRecording && styles.recordingButton]}
+            labelStyle={styles.buttonLabel}
+          />
+          <Button 
+            icon="send" 
+            onPress={() => handleSend(input)} 
+            disabled={!input.trim() || isLoading}
+            mode="contained"
+            style={styles.button}
+            labelStyle={styles.buttonLabel}
+          />
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -100,48 +143,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#F7F7F7',
   },
   messageList: {
-    paddingVertical: 10,
+    padding: 10,
   },
   loader: {
-    marginVertical: 10,
+    padding: 10,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
     backgroundColor: 'white',
   },
   textInput: {
     flex: 1,
-    height: 40,
-    borderWidth: 1,
-    borderColor: '#CCC',
-    borderRadius: 20,
-    paddingHorizontal: 15,
-    backgroundColor: '#FFF',
+    marginRight: 8,
   },
-  voiceButton: {
-    marginLeft: 10,
-    padding: 10,
-    borderRadius: 20,
-    backgroundColor: '#007AFF',
+  button: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 50,
+    height: 50,
+    borderRadius: 25,
+    marginHorizontal: 4,
   },
   recordingButton: {
-    backgroundColor: 'red',
+    backgroundColor: 'red'
   },
-  voiceButtonText: {
-    color: 'white',
-    fontSize: 16,
-  },
-  sendButton: {
-    marginLeft: 10,
-    padding: 10,
-  },
-  sendButtonText: {
+  buttonLabel: {
     fontSize: 20,
-    color: '#007AFF',
+    lineHeight: 22,
   }
 });
 
