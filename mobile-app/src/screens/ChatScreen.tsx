@@ -2,15 +2,12 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { IconButton } from 'react-native-paper';
-import { GiftedChat, IMessage, InputToolbar, Send, Actions } from 'react-native-gifted-chat';
-import * as Speech from 'expo-speech';
+import { GiftedChat, IMessage, InputToolbar, Send } from 'react-native-gifted-chat';
 import { askAI } from '../services/api';
-import { useSpeechToText } from '../hooks/useSpeechToText';
 
 const ChatScreen = () => {
   const [messages, setMessages] = useState<IMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const { isRecording, startRecording, stopRecordingAndTranscribe } = useSpeechToText();
 
   useEffect(() => {
     // Welcome message
@@ -25,7 +22,6 @@ const ChatScreen = () => {
       },
     };
     setMessages([welcomeMessage]);
-    Speech.speak(welcomeMessage.text, { language: 'tr-TR' });
   }, []);
 
   const onSend = useCallback(async (newMessages: IMessage[] = []) => {
@@ -66,7 +62,6 @@ const ChatScreen = () => {
       ));
 
       setIsLoading(false);
-      Speech.speak(result.answer, { language: 'tr-TR' });
 
       // Log sources for debugging
       console.log('Sources:', result.sources);
@@ -87,25 +82,7 @@ const ChatScreen = () => {
     }
   }, [isLoading]);
 
-  const handleVoiceButtonPress = async () => {
-    if (isLoading) return;
-    if (isRecording) {
-      const transcribedText = await stopRecordingAndTranscribe();
-      if (transcribedText) {
-        const voiceMessage: IMessage = {
-          _id: Date.now().toString(),
-          text: transcribedText,
-          createdAt: new Date(),
-          user: {
-            _id: 1,
-          },
-        };
-        onSend([voiceMessage]);
-      }
-    } else {
-      await startRecording();
-    }
-  };
+
 
   const renderInputToolbar = (props: any) => (
     <InputToolbar
@@ -123,20 +100,7 @@ const ChatScreen = () => {
     </Send>
   );
 
-  const renderActions = (props: any) => (
-    <Actions
-      {...props}
-      containerStyle={styles.actionsContainer}
-      onPressActionButton={handleVoiceButtonPress}
-      icon={() => (
-        <IconButton
-          icon={isRecording ? "stop-circle-outline" : "microphone"}
-          size={24}
-          iconColor={isRecording ? "#FF0000" : "#007AFF"}
-        />
-      )}
-    />
-  );
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -148,7 +112,6 @@ const ChatScreen = () => {
         }}
         renderInputToolbar={renderInputToolbar}
         renderSend={renderSend}
-        renderActions={renderActions}
         placeholder="Mesajınızı yazın..."
         isTyping={isLoading}
         showUserAvatar={false}
@@ -185,12 +148,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 8,
-    marginBottom: 8,
-  },
-  actionsContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 8,
     marginBottom: 8,
   },
 });
