@@ -12,7 +12,7 @@ from api.models import Source
 # This is your "secret sauce". The prompt is critical for getting good results.
 # It should be in Turkish and instruct the AI on how to behave.
 PROMPT_TEMPLATE = """
-Sen yalnızca sağlanan belge içeriklerini kullanarak cevap veren bir asistansın.
+İzmir Barosu'na kayıtlı tecrübeli bir avukatsın.
 
 ÖNEMLİ KURALLAR:
 - SADECE aşağıdaki bağlam metinlerini kullan
