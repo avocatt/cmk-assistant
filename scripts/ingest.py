@@ -144,11 +144,23 @@ def main():
         )
 
         print("Creating vector database (this may take a few minutes)...")
-        db = Chroma.from_documents(
-            chunks,
-            embedding_function,
+        # Process chunks in batches to avoid OpenAI token limits
+        batch_size = 100  # Process 100 chunks at a time to stay under token limits
+
+        # Initialize empty vector store
+        db = Chroma(
+            embedding_function=embedding_function,
             persist_directory=settings.vector_store_path
         )
+
+        # Process chunks in batches
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i:i + batch_size]
+            print(
+                f"Processing batch {i//batch_size + 1}/{(len(chunks) + batch_size - 1)//batch_size} ({len(batch)} chunks)...")
+
+            # Add batch to vector store
+            db.add_documents(batch)
 
         print("\n--- Data Ingestion Complete! ---")
         print(f"Vector store created with {db._collection.count()} vectors.")
