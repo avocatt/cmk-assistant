@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from api.routes import router as api_router
 from core.rag_service import get_rag_chain
+from core.middleware import CostTrackingMiddleware
 
 
 @asynccontextmanager
@@ -32,12 +33,31 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Add cost tracking middleware
+app.add_middleware(CostTrackingMiddleware)
+
 app.include_router(api_router, prefix="/api")
 
 
 @app.get("/", tags=["Root"])
 async def read_root():
     return {"message": "Welcome to the CMK Asistanı API. See /docs for usage."}
+
+
+@app.get("/health", tags=["Health"])
+async def health_check():
+    from core.cost_tracker import cost_tracker
+    today_costs = cost_tracker.get_total_costs_today()
+
+    return {
+        "status": "healthy",
+        "rag_service": "available" if app.state.rag_service else "unavailable",
+        "today_costs": {
+            "total_cost": today_costs["total_cost"],
+            "total_requests": today_costs["total_requests"],
+            "service_breakdown": today_costs["service_breakdown"]
+        }
+    }
 
 # This is useful if you want to run the app directly with `python main.py`
 # But for development, `uvicorn main:app --reload` is preferred.

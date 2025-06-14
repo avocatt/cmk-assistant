@@ -5,8 +5,10 @@ from langchain.schema.runnable import Runnable, RunnablePassthrough
 from langchain.schema.output_parser import StrOutputParser
 from langchain.docstore.document import Document as LangchainDocument
 
-from typing import List
+from typing import List, Optional
 from .config import settings
+from .llm_wrapper import CostTrackingChatOpenAI
+from .cost_tracker import cost_tracker
 from api.models import Source
 
 # This is your "secret sauce". The prompt is critical for getting good results.
@@ -54,9 +56,10 @@ Bu bilgi sağlanan belgelerde bulunmamaktadır.
 
 
 class RAGService:
-    def __init__(self, retriever: Runnable, chain: Runnable):
+    def __init__(self, retriever: Runnable, chain: Runnable, llm: ChatOpenAI):
         self.retriever = retriever
         self.chain = chain
+        self.llm = llm
 
     def get_source_documents(self, question: str) -> List[LangchainDocument]:
         """Retrieves source documents but does not generate an answer."""
@@ -75,13 +78,47 @@ class RAGService:
 
         return docs
 
-    def get_streaming_answer(self, question: str, context: str):
+    def get_streaming_answer(self, question: str, context: str, request_id: Optional[str] = None):
         """Returns a streaming generator for the LLM answer."""
-        return self.chain.stream({"context": context, "question": question})
+        if request_id and isinstance(self.llm, CostTrackingChatOpenAI):
+            # Create a new chain with cost tracking for this request
+            llm_with_tracking = self.llm.with_request_id(request_id)
+            prompt = PromptTemplate(
+                template=PROMPT_TEMPLATE,
+                input_variables=["context", "question"],
+            )
+            tracked_chain = prompt | llm_with_tracking | StrOutputParser()
+            return tracked_chain.stream({"context": context, "question": question})
+        else:
+            return self.chain.stream({"context": context, "question": question})
 
-    def get_answer(self, question: str, context: str) -> str:
+    def get_answer(self, question: str, context: str, request_id: Optional[str] = None) -> str:
         """Returns a complete answer as a string."""
-        return self.chain.invoke({"context": context, "question": question})
+        if request_id and isinstance(self.llm, CostTrackingChatOpenAI):
+            # Create a new chain with cost tracking for this request
+            llm_with_tracking = self.llm.with_request_id(request_id)
+            prompt = PromptTemplate(
+                template=PROMPT_TEMPLATE,
+                input_variables=["context", "question"],
+            )
+            tracked_chain = prompt | llm_with_tracking | StrOutputParser()
+            return tracked_chain.invoke({"context": context, "question": question})
+        else:
+            return self.chain.invoke({"context": context, "question": question})
+
+    def track_embedding_cost(self, request_id: str, text_length: int):
+        """Track the cost of embedding generation for retrieval"""
+        if request_id:
+            # Estimate tokens (rough approximation: 1 token ≈ 4 characters)
+            estimated_tokens = text_length // 4
+            cost_tracker.track_openai_call(
+                request_id=request_id,
+                model="text-embedding-ada-002",  # Default embedding model
+                endpoint="embeddings",
+                input_tokens=estimated_tokens,
+                output_tokens=0,
+                success=True
+            )
 
     @staticmethod
     def format_docs(docs: List[LangchainDocument]) -> str:
@@ -114,7 +151,7 @@ def get_rag_chain():
         )
 
         # Using OpenRouter for LLM with configurable model
-        llm = ChatOpenAI(
+        llm = CostTrackingChatOpenAI(
             temperature=0.1,
             model_name=settings.model_name,
             api_key=settings.openrouter_api_key,
@@ -129,7 +166,7 @@ def get_rag_chain():
         )
 
         # Return the service with the retriever and the chain separated
-        return RAGService(retriever=retriever, chain=rag_chain)
+        return RAGService(retriever=retriever, chain=rag_chain, llm=llm)
 
     except Exception as e:
         # Handle cases where the vector store might not be initialized yet

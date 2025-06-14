@@ -8,4 +8,5 @@ langchain-community
 chromadb
 pypdf
 httpx
-python-multipart 
+python-multipart
+requests 
