@@ -69,3 +69,4 @@ venv.bak/
 db/
 chroma/
 chroma_db/ 
+.DS_Store
